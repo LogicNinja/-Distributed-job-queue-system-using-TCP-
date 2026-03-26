@@ -1,0 +1,5 @@
+num_jobs,completed,failed,total_time_s,throughput_jobs_per_sec,avg_response_time_s,avg_queue_wait_time_s,avg_latency_s
+10,10,0,0.0766,130.625,0.0425,0.042,0.0005
+20,20,0,0.1464,136.6503,0.0735,0.073,0.0005
+50,50,0,0.3725,134.2155,0.1677,0.1672,0.0005
+100,100,0,0.7158,139.7074,0.3369,0.3364,0.0005

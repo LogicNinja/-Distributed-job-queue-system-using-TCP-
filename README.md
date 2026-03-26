@@ -13,6 +13,7 @@ Design and implement a socket-based distributed job queue system where multiple 
 ---
 
 ## System Architecture
+
 The system consists of three main components:
 
 ### 1. Client
@@ -68,6 +69,9 @@ Place all files (`server.py`, `client.py`, `worker.py`, etc.) in the same folder
 Run the following command in terminal:
 
 
+openssl req -new -x509 -days 365 -nodes -out cert.pem -keyout key.pem
+
+
 This creates:
 - `cert.pem` (certificate)
 - `key.pem` (private key)
@@ -82,11 +86,18 @@ Open multiple terminals (Command Prompt or VS Code terminal).
 
 ### Step 1: Start the Server
 
+python server.py
+
 
 ### Step 2: Start Worker Nodes
 Run this in one or more terminals:
 
+python worker.py
+
+
 ### Step 3: Start Client
+
+python client.py
 
 
 ---
@@ -94,9 +105,20 @@ Run this in one or more terminals:
 ## Usage Instructions
 
 ### Submitting Jobs
-In the client terminal, enter:
+
+SUBMIT ADD 5 6
+SUBMIT MUL 3 4
+
+
 ### Query Job Status
+
+QUERY 1
+
+
 ### Exit
+
+EXIT
+
 
 ---
 
@@ -104,7 +126,11 @@ In the client terminal, enter:
 
 To test the system under different loads:
 
-This script simulates multiple clients and measures:
+
+python load_test.py
+
+
+This script measures:
 - Response time  
 - Throughput  
 - Latency  
@@ -112,10 +138,12 @@ This script simulates multiple clients and measures:
 
 The results are stored in:
 
+performance_results.csv
+
+
 ---
 
 ## Fault Tolerance
-
 The system handles failures in the following ways:
 - If a worker crashes, the job is re-added to the queue  
 - Stale jobs are automatically reassigned  
@@ -131,4 +159,4 @@ The system successfully handles multiple clients and workers simultaneously, ens
 ## Notes
 - SSL uses self-signed certificates for demonstration purposes  
 - The system is designed to run on localhost  
-- Increasing the number of workers improves performance  
+- Increasing the number of workers improves performance

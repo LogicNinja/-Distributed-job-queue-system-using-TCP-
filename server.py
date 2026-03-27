@@ -2,9 +2,9 @@ import socket
 import threading
 import ssl
 import time
-from queue import Queue
+from queue import Queue, Empty
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 5000
 
 job_queue = Queue()
@@ -23,11 +23,9 @@ results_lock = threading.Lock()
 client_events = {}
 client_events_lock = threading.Lock()
 
-dispatch_lock = threading.Lock()
-
 job_submit_times = {}
-job_dispatch_times = {}
-job_complete_times = {}
+job_start_times = {}
+job_finish_times = {}
 metrics_lock = threading.Lock()
 
 WORKER_TIMEOUT = 60
@@ -108,8 +106,9 @@ def handle_client(conn, addr):
                 jid = job_counter
                 job_counter += 1
 
+            submit_time = time.time()
             with metrics_lock:
-                job_submit_times[jid] = time.time()
+                job_submit_times[jid] = submit_time
 
             job_queue.put((jid, job))
 
@@ -120,7 +119,7 @@ def handle_client(conn, addr):
             try:
                 conn.send(f"JOB_ACCEPTED {jid}".encode())
             except Exception:
-                print(f"Client {addr} disconnected after job {jid} was queued — job stays in queue")
+                print(f"Client {addr} disconnected after job {jid} was queued")
                 with client_events_lock:
                     client_events.pop(jid, None)
                 return
@@ -135,7 +134,12 @@ def handle_client(conn, addr):
 
             try:
                 if result is not None:
-                    conn.send(f"RESULT {jid} {result}".encode())
+                    with metrics_lock:
+                        start = job_start_times.get(jid, submit_time)
+                        finish = job_finish_times.get(jid, time.time())
+                    true_queue_wait = round(start - submit_time, 4)
+                    true_processing = round(finish - start, 4)
+                    conn.send(f"RESULT {jid} {result} queue_wait={true_queue_wait} processing={true_processing}".encode())
                 else:
                     conn.send(f"RESULT {jid} TIMEOUT".encode())
             except Exception:
@@ -195,18 +199,17 @@ def handle_worker(conn):
 
             if data == "GET_JOB":
                 current_job = None
-                with dispatch_lock:
-                    try:
-                        jid, job = job_queue.get(timeout=1)
-                        with in_progress_lock:
-                            in_progress[jid] = (job, time.time())
-                        with metrics_lock:
-                            job_dispatch_times[jid] = time.time()
-                        current_job = jid
-                        conn.send(f"JOB {jid} {job}".encode())
-                        print(f"Dispatched job {jid} to worker")
-                    except Exception:
-                        conn.send("NO_JOB".encode())
+                try:
+                    jid, job = job_queue.get_nowait()
+                    with in_progress_lock:
+                        in_progress[jid] = (job, time.time())
+                    with metrics_lock:
+                        job_start_times[jid] = time.time()
+                    current_job = jid
+                    conn.send(f"JOB {jid} {job}".encode())
+                    print(f"Dispatched job {jid} to worker")
+                except Empty:
+                    conn.send("NO_JOB".encode())
 
             elif data.startswith("DONE"):
                 parts = data.split()
@@ -226,7 +229,7 @@ def handle_worker(conn):
                             in_progress.pop(jid, None)
 
                         with metrics_lock:
-                            job_complete_times[jid] = time.time()
+                            job_finish_times[jid] = time.time()
 
                         with results_lock:
                             results[jid] = result
@@ -246,7 +249,7 @@ def handle_worker(conn):
                 conn.send("ERROR unknown command".encode())
 
     except ConnectionResetError:
-        print(f"Worker forcibly disconnected")
+        print("Worker forcibly disconnected")
     except Exception as e:
         print(f"Worker error: {e}")
     finally:

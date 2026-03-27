@@ -87,7 +87,7 @@ def run():
                     break
 
                 if data == "NO_JOB":
-                    time.sleep(1)
+                    time.sleep(0.1)
                     conn.send("GET_JOB".encode())
 
                 elif data.startswith("JOB"):

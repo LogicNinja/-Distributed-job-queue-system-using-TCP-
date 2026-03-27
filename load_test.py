@@ -16,7 +16,6 @@ CSV_FILE = "performance_results.csv"
 
 
 def submit_job(job, results_list, index):
-    start_time = time.time()
     secure_client = None
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -24,6 +23,7 @@ def submit_job(job, results_list, index):
         secure_client.settimeout(360)
         secure_client.connect((HOST, PORT))
 
+        submitted_at = time.time()
         secure_client.send(f"SUBMIT {job}".encode())
 
         try:
@@ -38,9 +38,6 @@ def submit_job(job, results_list, index):
             results_list[index] = None
             return
 
-        queue_wait_end = time.time()
-        queue_wait_time = queue_wait_end - start_time
-
         try:
             result_msg = secure_client.recv(1024).decode().strip()
         except socket.timeout:
@@ -48,21 +45,35 @@ def submit_job(job, results_list, index):
             results_list[index] = None
             return
 
+        result_received_at = time.time()
+
         if "TIMEOUT" in result_msg:
             print(f"Server reported timeout for job: {job}")
             results_list[index] = None
             return
 
-        end_time = time.time()
-        response_time = end_time - start_time
-        latency = end_time - queue_wait_end
+        response_time = round(result_received_at - submitted_at, 4)
+
+        true_queue_wait = None
+        true_processing = None
+        parts = result_msg.split()
+        for part in parts:
+            if part.startswith("queue_wait="):
+                try:
+                    true_queue_wait = float(part.split("=")[1])
+                except ValueError:
+                    pass
+            if part.startswith("processing="):
+                try:
+                    true_processing = float(part.split("=")[1])
+                except ValueError:
+                    pass
 
         results_list[index] = {
             "job": job,
-            "response_time": round(response_time, 4),
-            "queue_wait_time": round(queue_wait_time, 4),
-            "latency": round(latency, 4),
-            "result": result_msg
+            "response_time": response_time,
+            "queue_wait_time": true_queue_wait if true_queue_wait is not None else 0,
+            "processing_latency": true_processing if true_processing is not None else 0,
         }
 
     except ssl.SSLError as e:
@@ -90,7 +101,7 @@ def generate_jobs(num_jobs):
     for _ in range(num_jobs):
         op = random.choice(OPERATIONS)
         a = random.randint(1, 100)
-        b = random.randint(1, 100) if op != "DIV" else random.randint(1, 100)
+        b = random.randint(1, 100)
         jobs.append(f"{op} {a} {b}")
     return jobs
 
@@ -126,17 +137,17 @@ def run_load_test(num_jobs):
 
     avg_response_time = sum(r["response_time"] for r in completed) / len(completed)
     avg_queue_wait = sum(r["queue_wait_time"] for r in completed) / len(completed)
-    avg_latency = sum(r["latency"] for r in completed) / len(completed)
+    avg_processing = sum(r["processing_latency"] for r in completed) / len(completed)
     throughput = len(completed) / total_time
 
-    print(f"Jobs Submitted:       {num_jobs}")
-    print(f"Jobs Completed:       {len(completed)}")
-    print(f"Jobs Failed:          {failed}")
-    print(f"Total Time:           {round(total_time, 4)}s")
-    print(f"Throughput:           {round(throughput, 4)} jobs/sec")
-    print(f"Avg Response Time:    {round(avg_response_time, 4)}s")
-    print(f"Avg Queue Wait Time:  {round(avg_queue_wait, 4)}s")
-    print(f"Avg Latency:          {round(avg_latency, 4)}s")
+    print(f"Jobs Submitted:          {num_jobs}")
+    print(f"Jobs Completed:          {len(completed)}")
+    print(f"Jobs Failed:             {failed}")
+    print(f"Total Time:              {round(total_time, 4)}s")
+    print(f"Throughput:              {round(throughput, 4)} jobs/sec")
+    print(f"Avg Response Time:       {round(avg_response_time, 4)}s")
+    print(f"Avg Queue Wait Time:     {round(avg_queue_wait, 4)}s  (submit → worker picks up)")
+    print(f"Avg Processing Latency:  {round(avg_processing, 4)}s  (worker picks up → finishes)")
 
     return {
         "num_jobs": num_jobs,
@@ -146,7 +157,7 @@ def run_load_test(num_jobs):
         "throughput_jobs_per_sec": round(throughput, 4),
         "avg_response_time_s": round(avg_response_time, 4),
         "avg_queue_wait_time_s": round(avg_queue_wait, 4),
-        "avg_latency_s": round(avg_latency, 4)
+        "avg_processing_latency_s": round(avg_processing, 4)
     }
 
 
@@ -154,7 +165,7 @@ def save_to_csv(all_results):
     fieldnames = [
         "num_jobs", "completed", "failed", "total_time_s",
         "throughput_jobs_per_sec", "avg_response_time_s",
-        "avg_queue_wait_time_s", "avg_latency_s"
+        "avg_queue_wait_time_s", "avg_processing_latency_s"
     ]
     try:
         with open(CSV_FILE, "w", newline="") as f:
@@ -195,10 +206,10 @@ def main():
         print(f"\n{'='*50}")
         print("SUMMARY TABLE")
         print(f"{'='*50}")
-        print(f"{'Jobs':<8} {'Throughput':<15} {'Avg Response':<15} {'Avg Latency':<15} {'Avg Queue Wait'}")
-        print(f"{'-'*70}")
+        print(f"{'Jobs':<8} {'Throughput':<15} {'Avg Response':<15} {'Avg Queue Wait':<18} {'Avg Processing'}")
+        print(f"{'-'*75}")
         for r in all_results:
-            print(f"{r['num_jobs']:<8} {r['throughput_jobs_per_sec']:<15} {r['avg_response_time_s']:<15} {r['avg_latency_s']:<15} {r['avg_queue_wait_time_s']}")
+            print(f"{r['num_jobs']:<8} {r['throughput_jobs_per_sec']:<15} {r['avg_response_time_s']:<15} {r['avg_queue_wait_time_s']:<18} {r['avg_processing_latency_s']}")
     else:
         print("No results to display.")
 
